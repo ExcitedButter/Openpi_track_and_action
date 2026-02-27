@@ -128,13 +128,24 @@ class FakeDataset(Dataset):
 
 
 def create_torch_dataset(
-    data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
+    data_config: _config.DataConfig,
+    action_horizon: int,
+    model_config: _model.BaseModelConfig,
+    *,
+    predict_tracks: bool = False,
+    n_track_points: int = 39,
 ) -> Dataset:
     """Create a dataset for training."""
+    from openpi.training import tracks_dataset as _tracks_dataset
+
     repo_id = data_config.repo_id
     if repo_id is None:
         raise ValueError("Repo ID is not set. Cannot create dataset.")
     if repo_id == "fake":
+        if predict_tracks:
+            return _tracks_dataset.TracksFakeDataset(
+                model_config, num_samples=1024, n_track_points=n_track_points
+            )
         return FakeDataset(model_config, num_samples=1024)
 
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
@@ -299,8 +310,27 @@ def create_torch_data_loader(
             execute in the main process.
         seed: The seed to use for shuffling the data.
     """
-    dataset = create_torch_dataset(data_config, action_horizon, model_config)
+    predict_tracks = getattr(model_config, "predict_tracks", False)
+    n_track_points = getattr(model_config, "n_track_points", 39)
+
+    dataset = create_torch_dataset(
+        data_config,
+        action_horizon,
+        model_config,
+        predict_tracks=predict_tracks,
+        n_track_points=n_track_points,
+    )
     dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
+
+    if predict_tracks and data_config.tracks_path is not None:
+        from openpi.training import tracks_dataset as _tracks_dataset
+
+        dataset = _tracks_dataset.TracksSidecarDataset(
+            dataset,
+            tracks_path=data_config.tracks_path,
+            action_horizon=action_horizon,
+            n_track_points=n_track_points,
+        )
 
     # Use TorchDataLoader for both frameworks
     # For PyTorch DDP, create DistributedSampler and divide batch size by world size
@@ -537,4 +567,10 @@ class DataLoaderImpl(DataLoader):
 
     def __iter__(self):
         for batch in self._data_loader:
-            yield _model.Observation.from_dict(batch), batch["actions"]
+            obs = _model.Observation.from_dict(batch)
+            actions = batch["actions"]
+            tracks = batch.get("tracks")
+            if tracks is not None:
+                yield obs, actions, tracks
+            else:
+                yield obs, actions

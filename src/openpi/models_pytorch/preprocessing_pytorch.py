@@ -162,7 +162,7 @@ def preprocess_observation_pytorch(
             for key, value in kwargs.items():
                 setattr(self, key, value)
 
-    return SimpleProcessedObservation(
+    kwargs = dict(
         images=out_images,
         image_masks=out_masks,
         state=observation.state,
@@ -171,3 +171,6 @@ def preprocess_observation_pytorch(
         token_ar_mask=observation.token_ar_mask,
         token_loss_mask=observation.token_loss_mask,
     )
+    if hasattr(observation, "query_points") and observation.query_points is not None:
+        kwargs["query_points"] = observation.query_points
+    return SimpleProcessedObservation(**kwargs)

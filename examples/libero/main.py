@@ -32,10 +32,10 @@ class Args:
     # LIBERO environment-specific parameters
     #################################################################################################################
     task_suite_name: str = (
-        "libero_spatial"  # Task suite. Options: libero_spatial, libero_object, libero_goal, libero_10, libero_90
+        "libero_10"  # Task suite. Options: libero_spatial, libero_object, libero_goal, libero_10, libero_10_with_milk, libero_90
     )
     num_steps_wait: int = 10  # Number of steps to wait for objects to stabilize i n sim
-    num_trials_per_task: int = 50  # Number of rollouts per task
+    num_trials_per_task: int = 20  # Number of rollouts per task
 
     #################################################################################################################
     # Utils
@@ -63,7 +63,7 @@ def eval_libero(args: Args) -> None:
         max_steps = 280  # longest training demo has 254 steps
     elif args.task_suite_name == "libero_goal":
         max_steps = 300  # longest training demo has 270 steps
-    elif args.task_suite_name == "libero_10":
+    elif args.task_suite_name in ("libero_10", "libero_10_with_mug"):
         max_steps = 520  # longest training demo has 505 steps
     elif args.task_suite_name == "libero_90":
         max_steps = 400  # longest training demo has 373 steps
@@ -74,6 +74,7 @@ def eval_libero(args: Args) -> None:
 
     # Start evaluation
     total_episodes, total_successes = 0, 0
+    task_results = []  # [(task_id, task_description, successes, total, rate), ...]
     for task_id in tqdm.tqdm(range(num_tasks_in_suite)):
         # Get task
         task = task_suite.get_task(task_id)
@@ -178,12 +179,34 @@ def eval_libero(args: Args) -> None:
             logging.info(f"# episodes completed so far: {total_episodes}")
             logging.info(f"# successes: {total_successes} ({total_successes / total_episodes * 100:.1f}%)")
 
-        # Log final results
-        logging.info(f"Current task success rate: {float(task_successes) / float(task_episodes)}")
-        logging.info(f"Current total success rate: {float(total_successes) / float(total_episodes)}")
+        # Record and log per-task results
+        task_rate = float(task_successes) / float(task_episodes) if task_episodes else 0.0
+        task_results.append((task_id + 1, task_description, task_successes, task_episodes, task_rate))
+        logging.info(f"[Task {task_id + 1}/{num_tasks_in_suite}] {task_description}: {task_successes}/{task_episodes} = {task_rate:.1%}")
+        logging.info(f"Current total success rate: {total_successes}/{total_episodes} = {float(total_successes) / float(total_episodes):.1%}")
 
-    logging.info(f"Total success rate: {float(total_successes) / float(total_episodes)}")
-    logging.info(f"Total episodes: {total_episodes}")
+    # Final summary: all tasks
+    summary_lines = [
+        "=" * 60,
+        "PER-TASK SUCCESS RATE SUMMARY",
+        "=" * 60,
+    ]
+    for tid, desc, succ, tot, rate in task_results:
+        summary_lines.append(f"  Task {tid:2d}: {succ:2d}/{tot:2d} = {rate:6.1%}  |  {desc}")
+    total_rate = float(total_successes) / float(total_episodes) if total_episodes else 0.0
+    summary_lines.extend([
+        "=" * 60,
+        f"TOTAL: {total_successes}/{total_episodes} = {total_rate:.1%}",
+        f"Total episodes: {total_episodes}",
+    ])
+    summary_text = "\n".join(summary_lines)
+    for line in summary_lines:
+        logging.info(line)
+    # Save to file
+    result_path = pathlib.Path("/scratch1/home/zhicao/openpi/examples/1.txt")
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(summary_text, encoding="utf-8")
+    logging.info(f"Results saved to {result_path}")
 
 
 def _get_libero_env(task, resolution, seed):

@@ -29,6 +29,13 @@ class Pi0Config(_model.BaseModelConfig):
     # - the state input is part of the discrete language tokens rather than a continuous input that is part of the suffix
     # - the action expert uses adaRMSNorm to inject the flow matching timestep
     pi05: bool = False
+
+    # Tracks prediction: predict mesh point tracks alongside actions.
+    # 39 points: 7 agent view + 25 uniform grid eye-in-hand + 7 gripper eye-in-hand
+    predict_tracks: bool = False
+    n_track_points: int = 39
+    track_point_groups: tuple[int, ...] = (7, 25, 7)  # (agent_view, grid_eye_in_hand, gripper_eye_in_hand)
+    tracks_loss_weight: float = 1.0
     # This config option is not used directly by the model, but it is read by the ModelTransformFactory.
     discrete_state_input: bool = None  # type: ignore
 

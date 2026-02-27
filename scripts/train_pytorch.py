@@ -364,7 +364,8 @@ def train_loop(config: _config.TrainConfig):
         sample_data_loader = _data.create_data_loader(config, framework="pytorch", shuffle=False)
         sample_batch = next(iter(sample_data_loader))
         # Convert observation and actions to torch tensors
-        observation, actions = sample_batch
+        observation = sample_batch[0]
+        actions = sample_batch[1]
         sample_batch = observation.to_dict()
         sample_batch["actions"] = actions
 
@@ -400,6 +401,9 @@ def train_loop(config: _config.TrainConfig):
             paligemma_variant=getattr(config.model, "paligemma_variant", "gemma_2b"),
             action_expert_variant=getattr(config.model, "action_expert_variant", "gemma_300m"),
             pi05=getattr(config.model, "pi05", False),
+            predict_tracks=getattr(config.model, "predict_tracks", False),
+            n_track_points=getattr(config.model, "n_track_points", 39),
+            tracks_loss_weight=getattr(config.model, "tracks_loss_weight", 1.0),
         )
     else:
         model_cfg = config.model
@@ -511,22 +515,26 @@ def train_loop(config: _config.TrainConfig):
         if use_ddp and hasattr(loader, "set_epoch"):
             loader.set_epoch(global_step // len(loader))
 
-        for observation, actions in loader:
+        for batch in loader:
             # Check if we've reached the target number of steps
             if global_step >= config.num_train_steps:
                 break
 
-            # The unified data loader returns (observation, actions) tuple
+            # The data loader returns (observation, actions) or (observation, actions, tracks)
+            observation, actions = batch[0], batch[1]
+            tracks = batch[2] if len(batch) == 3 else None
+
             observation = jax.tree.map(lambda x: x.to(device), observation)  # noqa: PLW2901
-            actions = actions.to(torch.float32)  # noqa: PLW2901
-            actions = actions.to(device)  # noqa: PLW2901
+            actions = actions.to(torch.float32).to(device)  # noqa: PLW2901
+            if tracks is not None:
+                tracks = tracks.to(torch.float32).to(device)
 
             # Update LR
             for pg in optim.param_groups:
                 pg["lr"] = lr_schedule(global_step)
 
             # Forward pass
-            losses = model(observation, actions)
+            losses = model(observation, actions, tracks=tracks)
             # Ensure losses is a tensor and handle different return types
             if isinstance(losses, list | tuple):
                 losses = torch.stack(losses)

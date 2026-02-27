@@ -96,6 +96,10 @@ class DataConfig:
     # Path to the data filter file for DROID dataset
     filter_dict_path: str | None = None
 
+    # Path to tracks.npy for tracks prediction. Shape: (N, action_horizon, 39, 3).
+    # 39 points: 7 agent view + 25 uniform grid eye-in-hand + 7 gripper eye-in-hand
+    tracks_path: str | None = None
+
 
 class GroupFactory(Protocol):
     def __call__(self, model_config: _model.BaseModelConfig) -> _transforms.Group:
@@ -352,6 +356,22 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
             data_transforms=data_transforms,
             model_transforms=model_transforms,
         )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotLiberoTracksDataConfig(LeRobotLiberoDataConfig):
+    """
+    LeRobot Libero config with mesh point tracks for PI0.5.
+    Requires tracks_path pointing to .npy file with shape (N, action_horizon, 39, 3).
+    39 points: 7 agent view + 25 uniform grid eye-in-hand + 7 gripper eye-in-hand.
+    """
+
+    tracks_path: str | None = None
+
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        base_config = super().create(assets_dirs, model_config)
+        return dataclasses.replace(base_config, tracks_path=self.tracks_path)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -748,6 +768,28 @@ _CONFIGS = [
         ),
         optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
         ema_decay=0.999,
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        pytorch_weight_path="/path/to/your/pytorch_weight_path",
+        num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_tracks",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=10,
+            discrete_state_input=False,
+            predict_tracks=True,
+            n_track_points=39,
+            track_point_groups=(7, 25, 7),
+            tracks_loss_weight=1.0,
+        ),
+        data=LeRobotLiberoTracksDataConfig(
+            repo_id="physical-intelligence/libero",
+            base_config=DataConfig(prompt_from_task=True),
+            extra_delta_transform=False,
+            tracks_path="<path/to/your/tracks.npy>",  # Shape: (N, 10, 39, 3)
+        ),
+        batch_size=32,
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,

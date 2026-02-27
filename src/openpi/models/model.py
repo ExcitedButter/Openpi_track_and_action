@@ -140,6 +140,11 @@ class Observation(Generic[ArrayT]):
 # produced by the data transforms.
 Actions = at.Float[ArrayT, "*b ah ad"]
 
+# Tracks: mesh point trajectories per timestep.
+# Shape: (*b, action_horizon, n_track_points, 3) for xyz coordinates.
+# 39 points: 7 agent view + 25 uniform grid eye-in-hand + 7 gripper eye-in-hand
+Tracks = at.Float[ArrayT, "*b ah np 3"]
+
 
 def preprocess_observation(
     rng: at.KeyArrayLike | None,
@@ -240,10 +245,11 @@ class BaseModelConfig(abc.ABC):
         state.replace_by_pure_dict(params)
         return nnx.merge(graphdef, state)
 
-    def load_pytorch(self, train_config, weight_path: str):
+    def load_pytorch(self, train_config, weight_path: str, *, strict: bool = True):
         logger.info(f"train_config: {train_config}")
         model = pi0_pytorch.PI0Pytorch(config=train_config.model)
-        safetensors.torch.load_model(model, weight_path)
+        # Use strict=False when loading base checkpoint into model with predict_tracks
+        safetensors.torch.load_model(model, weight_path, strict=strict)
         return model
 
     @abc.abstractmethod

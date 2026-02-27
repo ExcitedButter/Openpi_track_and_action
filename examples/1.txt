@@ -1,0 +1,16 @@
+============================================================
+PER-TASK SUCCESS RATE SUMMARY
+============================================================
+  Task  1: 20/20 = 100.0%  |  pick up the alphabet soup and put it in the basket
+  Task  2: 19/20 =  95.0%  |  pick up the cream cheese box and put it in the basket
+  Task  3:  0/20 =   0.0%  |  pick up the ketchup and put it in the basket
+  Task  4:  0/20 =   0.0%  |  pick up the tomato sauce and put it in the basket
+  Task  5: 17/20 =  85.0%  |  pick up the alphabet soup and put it in the basket
+  Task  6: 18/20 =  90.0%  |  pick up the butter and put it in the basket
+  Task  7:  0/20 =   0.0%  |  pick up the milk and put it in the basket
+  Task  8:  1/20 =   5.0%  |  pick up the orange juice and put it in the basket
+  Task  9: 15/20 =  75.0%  |  pick up the tomato sauce and put it in the basket
+  Task 10: 19/20 =  95.0%  |  pick up the alphabet soup and put it in the tray
+============================================================
+TOTAL: 109/200 = 54.5%
+Total episodes: 200
