@@ -8,10 +8,12 @@
   3. 运行：python 2.py
 """
 
-import cv2
 import os
-import numpy as np
+
+import cv2
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
@@ -54,8 +56,9 @@ def compute_critic_from_value(values):
 
 def load_from_csv(csv_path):
     import csv
+
     values, critics, dones = [], [], []
-    with open(csv_path, "r") as f:
+    with open(csv_path) as f:
         reader = csv.DictReader(f)
         for row in reader:
             values.append(float(row.get("value", 0)))
@@ -151,9 +154,7 @@ def make_video(folder, value_values, critic_values, done_values, output_path):
         if img is None:
             continue
         panel = draw_charts_panel(
-            h, RIGHT_PANEL_WIDTH,
-            value_values[: i + 1], critic_values[: i + 1], done_values[: i + 1],
-            i
+            h, RIGHT_PANEL_WIDTH, value_values[: i + 1], critic_values[: i + 1], done_values[: i + 1], i
         )
         composite = np.hstack([img, panel])
         out.write(composite)

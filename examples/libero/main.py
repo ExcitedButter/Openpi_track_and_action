@@ -31,9 +31,7 @@ class Args:
     #################################################################################################################
     # LIBERO environment-specific parameters
     #################################################################################################################
-    task_suite_name: str = (
-        "libero_10"  # Task suite. Options: libero_spatial, libero_object, libero_goal, libero_10, libero_10_with_milk, libero_90
-    )
+    task_suite_name: str = "libero_10"  # Task suite. Options: libero_spatial, libero_object, libero_goal, libero_10, libero_10_with_milk, libero_90
     num_steps_wait: int = 10  # Number of steps to wait for objects to stabilize i n sim
     num_trials_per_task: int = 20  # Number of rollouts per task
 
@@ -182,8 +180,12 @@ def eval_libero(args: Args) -> None:
         # Record and log per-task results
         task_rate = float(task_successes) / float(task_episodes) if task_episodes else 0.0
         task_results.append((task_id + 1, task_description, task_successes, task_episodes, task_rate))
-        logging.info(f"[Task {task_id + 1}/{num_tasks_in_suite}] {task_description}: {task_successes}/{task_episodes} = {task_rate:.1%}")
-        logging.info(f"Current total success rate: {total_successes}/{total_episodes} = {float(total_successes) / float(total_episodes):.1%}")
+        logging.info(
+            f"[Task {task_id + 1}/{num_tasks_in_suite}] {task_description}: {task_successes}/{task_episodes} = {task_rate:.1%}"
+        )
+        logging.info(
+            f"Current total success rate: {total_successes}/{total_episodes} = {float(total_successes) / float(total_episodes):.1%}"
+        )
 
     # Final summary: all tasks
     summary_lines = [
@@ -194,11 +196,13 @@ def eval_libero(args: Args) -> None:
     for tid, desc, succ, tot, rate in task_results:
         summary_lines.append(f"  Task {tid:2d}: {succ:2d}/{tot:2d} = {rate:6.1%}  |  {desc}")
     total_rate = float(total_successes) / float(total_episodes) if total_episodes else 0.0
-    summary_lines.extend([
-        "=" * 60,
-        f"TOTAL: {total_successes}/{total_episodes} = {total_rate:.1%}",
-        f"Total episodes: {total_episodes}",
-    ])
+    summary_lines.extend(
+        [
+            "=" * 60,
+            f"TOTAL: {total_successes}/{total_episodes} = {total_rate:.1%}",
+            f"Total episodes: {total_episodes}",
+        ]
+    )
     summary_text = "\n".join(summary_lines)
     for line in summary_lines:
         logging.info(line)

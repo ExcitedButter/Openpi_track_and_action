@@ -107,20 +107,12 @@ class PI0Pytorch(nn.Module):
             # Query points: (cam_id, x, y, z) per point -> [B, 39, 4]
             self.query_point_encoder = nn.Linear(4, action_expert_config.width)
             # Noisy tracks: [B, 39, action_horizon, 3] -> flatten to [B, 39, action_horizon*3]
-            self.noisy_track_encoder = nn.Linear(
-                config.action_horizon * 3, action_expert_config.width
-            )
+            self.noisy_track_encoder = nn.Linear(config.action_horizon * 3, action_expert_config.width)
             # Track head: 39 output tokens -> [39, action_horizon, 3] per point
-            self.tracks_out_proj = nn.Linear(
-                action_expert_config.width, config.action_horizon * 3
-            )
+            self.tracks_out_proj = nn.Linear(action_expert_config.width, config.action_horizon * 3)
             if self.pi05:
-                self.track_time_mlp_in = nn.Linear(
-                    action_expert_config.width, action_expert_config.width
-                )
-                self.track_time_mlp_out = nn.Linear(
-                    action_expert_config.width, action_expert_config.width
-                )
+                self.track_time_mlp_in = nn.Linear(action_expert_config.width, action_expert_config.width)
+                self.track_time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
 
         if self.pi05:
             self.time_mlp_in = nn.Linear(action_expert_config.width, action_expert_config.width)
@@ -350,9 +342,7 @@ class PI0Pytorch(nn.Module):
         # [B, 39, 4] -> [B, 39, D]
         query_emb = self.query_point_encoder(query_points)
         # [B, 50, 39, 3] -> [B, 39, 50, 3] -> [B, 39, 150]
-        noisy_tracks_flat = noisy_tracks.permute(0, 2, 1, 3).reshape(
-            bsize, self.n_track_points, -1
-        )
+        noisy_tracks_flat = noisy_tracks.permute(0, 2, 1, 3).reshape(bsize, self.n_track_points, -1)
         track_emb = self.noisy_track_encoder(noisy_tracks_flat)
         # Combine: [B, 39, D]
         track_tokens = query_emb + track_emb
@@ -447,7 +437,6 @@ class PI0Pytorch(nn.Module):
             # Track branch: separate forward with query_points + noisy_tracks
             track_noise = self.sample_noise(tracks.shape, tracks.device)
             x_track = time_expanded * track_noise + (1 - time_expanded) * tracks
-            u_track = track_noise - tracks
 
             track_suffix_embs, track_pad_masks, track_att_masks, track_adarms = self.embed_track_suffix(
                 query_points, x_track, time
@@ -494,9 +483,7 @@ class PI0Pytorch(nn.Module):
         return action_loss
 
     @torch.no_grad()
-    def sample_actions(
-        self, device, observation, noise=None, num_steps=10
-    ) -> Tensor | dict[str, Tensor]:
+    def sample_actions(self, device, observation, noise=None, num_steps=10) -> Tensor | dict[str, Tensor]:
         """Do a full inference forward and compute the action (batch_size x num_steps x num_motors).
         When predict_tracks=True, also returns tracks of shape (batch_size, action_horizon, n_track_points, 3).
         """
@@ -532,16 +519,12 @@ class PI0Pytorch(nn.Module):
         time = torch.tensor(1.0, dtype=torch.float32, device=device)
         while time >= -dt / 2:
             expanded_time = time.expand(bsize)
-            v_t = self.denoise_step(
-                state, prefix_pad_masks, past_key_values, x_t, expanded_time
-            )
+            v_t = self.denoise_step(state, prefix_pad_masks, past_key_values, x_t, expanded_time)
             x_t = x_t + dt * v_t
             time += dt
 
         if self.predict_tracks and query_points is not None:
-            track_noise = self.sample_noise(
-                (bsize, self.config.action_horizon, self.n_track_points, 3), device
-            )
+            track_noise = self.sample_noise((bsize, self.config.action_horizon, self.n_track_points, 3), device)
             x_track = track_noise
             time = torch.tensor(1.0, dtype=torch.float32, device=device)
             while time >= -dt / 2:
@@ -563,9 +546,7 @@ class PI0Pytorch(nn.Module):
         timestep,
     ):
         """Apply one denoising step for actions."""
-        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(
-            state, x_t, timestep
-        )
+        suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, timestep)
 
         suffix_len = suffix_pad_masks.shape[1]
         batch_size = prefix_pad_masks.shape[0]

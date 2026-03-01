@@ -524,8 +524,8 @@ def train_loop(config: _config.TrainConfig):
             observation, actions = batch[0], batch[1]
             tracks = batch[2] if len(batch) == 3 else None
 
-            observation = jax.tree.map(lambda x: x.to(device), observation)  # noqa: PLW2901
-            actions = actions.to(torch.float32).to(device)  # noqa: PLW2901
+            observation = jax.tree.map(lambda x: x.to(device), observation)
+            actions = actions.to(torch.float32).to(device)
             if tracks is not None:
                 tracks = tracks.to(torch.float32).to(device)
 

@@ -49,9 +49,7 @@ class TracksSidecarDataset:
         self._dataset = dataset
         self._tracks = np.load(tracks_path).astype(np.float32)
         if self._tracks.ndim != 4:
-            raise ValueError(
-                f"tracks must be 4D (N, action_horizon, n_points, 3), got {self._tracks.shape}"
-            )
+            raise ValueError(f"tracks must be 4D (N, action_horizon, n_points, 3), got {self._tracks.shape}")
         n_samples, ah, np_pts, coords = self._tracks.shape
         if ah != action_horizon or np_pts != n_track_points or coords != 3:
             raise ValueError(
@@ -59,9 +57,7 @@ class TracksSidecarDataset:
                 f"got {self._tracks.shape}"
             )
         if n_samples != len(dataset):
-            raise ValueError(
-                f"tracks length ({n_samples}) must match dataset length ({len(dataset)})"
-            )
+            raise ValueError(f"tracks length ({n_samples}) must match dataset length ({len(dataset)})")
 
     def __getitem__(self, index: SupportsIndex):
         idx = index.__index__()
@@ -76,9 +72,7 @@ class TracksSidecarDataset:
             start = sum((7, 25, 7)[:i])
             end = min(start + group_size, n_points)
             cam_ids[start:end] = i
-        sample["query_points"] = np.concatenate(
-            [cam_ids[:, None], first_frame], axis=-1
-        ).astype(np.float32)
+        sample["query_points"] = np.concatenate([cam_ids[:, None], first_frame], axis=-1).astype(np.float32)
         return sample
 
     def __len__(self) -> int:
@@ -119,7 +113,5 @@ class TracksFakeDataset(_data_loader.FakeDataset):
             start = sum((7, 25, 7)[:i])
             end = min(start + group_size, self._n_track_points)
             cam_ids[start:end] = i
-        sample["query_points"] = np.concatenate(
-            [cam_ids[:, None], first_frame], axis=-1
-        ).astype(np.float32)
+        sample["query_points"] = np.concatenate([cam_ids[:, None], first_frame], axis=-1).astype(np.float32)
         return sample

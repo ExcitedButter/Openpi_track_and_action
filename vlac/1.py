@@ -1,11 +1,13 @@
-import cv2
 import os
+
+import cv2
 
 VIDEOS = [
     ("/scratch1/home/zhicao/openpi/1.mp4", "/scratch1/home/zhicao/openpi/1"),
     ("/scratch1/home/zhicao/openpi/2.mp4", "/scratch1/home/zhicao/openpi/2"),
 ]
 INTERVAL = 15  # 每隔15帧保存一次，即保存第1、16、31...帧（1-based）
+
 
 def extract_frames(video_path, output_dir):
     os.makedirs(output_dir, exist_ok=True)
@@ -27,6 +29,7 @@ def extract_frames(video_path, output_dir):
         frame_idx += 1
     cap.release()
     print(f"{video_path} -> {output_dir}: 保存了 {saved_count} 帧 (每{INTERVAL}帧取1帧)")
+
 
 if __name__ == "__main__":
     for video_path, output_dir in VIDEOS:

@@ -143,9 +143,7 @@ def create_torch_dataset(
         raise ValueError("Repo ID is not set. Cannot create dataset.")
     if repo_id == "fake":
         if predict_tracks:
-            return _tracks_dataset.TracksFakeDataset(
-                model_config, num_samples=1024, n_track_points=n_track_points
-            )
+            return _tracks_dataset.TracksFakeDataset(model_config, num_samples=1024, n_track_points=n_track_points)
         return FakeDataset(model_config, num_samples=1024)
 
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)

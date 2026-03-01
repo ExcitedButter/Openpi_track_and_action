@@ -45,7 +45,7 @@ def print_record_info(record: dict, step: int = None):
         print(f"\n=== Step {step} ===")
     else:
         print("\n=== Record Info ===")
-    
+
     print(f"Keys: {len(record)}")
     print("\nKey structure:")
     for key in sorted(record.keys()):
@@ -58,26 +58,27 @@ def print_record_info(record: dict, step: int = None):
 
 def convert_to_json(record: dict, output_path: pathlib.Path):
     """转换为 JSON 格式（注意：numpy 数组会被转换为列表）"""
+
     def convert_numpy(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        elif isinstance(obj, (np.integer, np.floating)):
+        if isinstance(obj, (np.integer, np.floating)):
             return obj.item()
-        elif isinstance(obj, dict):
+        if isinstance(obj, dict):
             return {k: convert_numpy(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
+        if isinstance(obj, list):
             return [convert_numpy(item) for item in obj]
         return obj
-    
+
     converted = convert_numpy(record)
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(converted, f, indent=2)
     print(f"Saved to {output_path}")
 
 
 def convert_to_pickle(record: dict, output_path: pathlib.Path):
     """转换为 pickle 格式（保留 numpy 数组）"""
-    with open(output_path, 'wb') as f:
+    with open(output_path, "wb") as f:
         pickle.dump(record, f)
     print(f"Saved to {output_path}")
 
@@ -114,40 +115,40 @@ def main():
         action="store_true",
         help="将扁平化的字典恢复为嵌套结构",
     )
-    
+
     args = parser.parse_args()
-    
+
     record_dir = pathlib.Path(args.record_dir)
     if not record_dir.exists():
         print(f"错误: 目录 {record_dir} 不存在")
         return
-    
+
     # 获取所有记录文件
     record_files = sorted(record_dir.glob("step_*.npy"))
     if not record_files:
         print(f"错误: 在 {record_dir} 中未找到 step_*.npy 文件")
         return
-    
+
     print(f"找到 {len(record_files)} 个记录文件")
-    
+
     if args.step is not None:
         # 查看特定步骤
         file_path = record_dir / f"step_{args.step}.npy"
         if not file_path.exists():
             print(f"错误: 文件 {file_path} 不存在")
             return
-        
+
         record = load_record(file_path)
         if args.unflatten:
             record = unflatten_dict(record)
-        
+
         print_record_info(record, args.step)
-        
+
         # 如果需要转换
         if args.convert:
             output_dir = pathlib.Path(args.output_dir) if args.output_dir else record_dir
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
             if args.convert == "json":
                 output_path = output_dir / f"step_{args.step}.json"
                 convert_to_json(record, output_path)
@@ -166,18 +167,18 @@ def main():
             print(f"  主要键: {', '.join(sorted(record.keys())[:10])}")
             if len(record) > 10:
                 print(f"  ... 还有 {len(record) - 10} 个键")
-        
+
         # 如果需要转换所有文件
         if args.convert:
             output_dir = pathlib.Path(args.output_dir) if args.output_dir else record_dir
             output_dir.mkdir(parents=True, exist_ok=True)
-            
+
             for file_path in record_files:
                 step_num = file_path.stem.split("_")[1]
                 record = load_record(file_path)
                 if args.unflatten:
                     record = unflatten_dict(record)
-                
+
                 if args.convert == "json":
                     output_path = output_dir / f"step_{step_num}.json"
                     convert_to_json(record, output_path)

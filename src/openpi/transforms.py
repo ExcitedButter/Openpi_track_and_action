@@ -348,9 +348,7 @@ class InjectQueryPoints(DataTransformFn):
         for i, group_size in enumerate(self.track_point_groups):
             cam_ids[offset : offset + group_size] = i
             offset += group_size
-        query_points = np.concatenate(
-            [cam_ids[:, None], first_frame], axis=-1
-        ).astype(np.float32)
+        query_points = np.concatenate([cam_ids[:, None], first_frame], axis=-1).astype(np.float32)
         return {**data, "query_points": query_points}
 
 
