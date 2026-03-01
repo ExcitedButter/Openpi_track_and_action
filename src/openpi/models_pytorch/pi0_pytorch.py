@@ -97,8 +97,8 @@ class PI0Pytorch(nn.Module):
             precision=config.dtype,
         )
 
-        self.action_in_proj = nn.Linear(32, action_expert_config.width)
-        self.action_out_proj = nn.Linear(action_expert_config.width, 32)
+        self.action_in_proj = nn.Linear(config.action_dim, action_expert_config.width)
+        self.action_out_proj = nn.Linear(action_expert_config.width, config.action_dim)
 
         self.predict_tracks = getattr(config, "predict_tracks", False)
         self.n_track_points = getattr(config, "n_track_points", 39)
@@ -126,7 +126,7 @@ class PI0Pytorch(nn.Module):
             self.time_mlp_in = nn.Linear(action_expert_config.width, action_expert_config.width)
             self.time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
         else:
-            self.state_proj = nn.Linear(32, action_expert_config.width)
+            self.state_proj = nn.Linear(config.action_dim, action_expert_config.width)
             self.action_time_mlp_in = nn.Linear(2 * action_expert_config.width, action_expert_config.width)
             self.action_time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
 

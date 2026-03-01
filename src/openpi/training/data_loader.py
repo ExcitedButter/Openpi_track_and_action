@@ -565,6 +565,19 @@ class DataLoaderImpl(DataLoader):
     def data_config(self) -> _config.DataConfig:
         return self._data_config
 
+    def set_epoch(self, epoch: int) -> None:
+        """Set epoch for DistributedSampler (DDP)."""
+        if isinstance(self._data_loader, TorchDataLoader):
+            sampler = self._data_loader.torch_loader.sampler
+            if hasattr(sampler, "set_epoch"):
+                sampler.set_epoch(epoch)
+
+    def __len__(self) -> int:
+        """Return number of batches per epoch (for set_epoch)."""
+        if isinstance(self._data_loader, TorchDataLoader):
+            return len(self._data_loader.torch_loader)
+        return 0
+
     def __iter__(self):
         for batch in self._data_loader:
             obs = _model.Observation.from_dict(batch)
