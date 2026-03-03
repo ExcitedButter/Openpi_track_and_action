@@ -106,8 +106,6 @@ class Observation(Generic[ArrayT]):
     # Token loss mask (for FAST autoregressive model).
     token_loss_mask: at.Bool[ArrayT, "*b l"] | None = None
 
-    # Track prediction: query points [B, 39, 4] for (cam_id, x, y, z).
-    query_points: at.Float[ArrayT, "*b np 4"] | None = None
 
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":

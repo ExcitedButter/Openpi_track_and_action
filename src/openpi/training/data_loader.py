@@ -143,7 +143,9 @@ def create_torch_dataset(
         raise ValueError("Repo ID is not set. Cannot create dataset.")
     if repo_id == "fake":
         if predict_tracks:
-            return _tracks_dataset.TracksFakeDataset(model_config, num_samples=1024, n_track_points=n_track_points)
+            return _tracks_dataset.TracksFakeDataset(
+                model_config, num_samples=1024, n_track_points=n_track_points
+            )
         return FakeDataset(model_config, num_samples=1024)
 
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
@@ -562,19 +564,6 @@ class DataLoaderImpl(DataLoader):
 
     def data_config(self) -> _config.DataConfig:
         return self._data_config
-
-    def set_epoch(self, epoch: int) -> None:
-        """Set epoch for DistributedSampler (DDP)."""
-        if isinstance(self._data_loader, TorchDataLoader):
-            sampler = self._data_loader.torch_loader.sampler
-            if hasattr(sampler, "set_epoch"):
-                sampler.set_epoch(epoch)
-
-    def __len__(self) -> int:
-        """Return number of batches per epoch (for set_epoch)."""
-        if isinstance(self._data_loader, TorchDataLoader):
-            return len(self._data_loader.torch_loader)
-        return 0
 
     def __iter__(self):
         for batch in self._data_loader:

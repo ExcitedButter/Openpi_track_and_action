@@ -9,6 +9,7 @@ import torch.nn.functional as F  # noqa: N812
 import openpi.models.gemma as _gemma
 from openpi.models_pytorch.gemma_pytorch import PaliGemmaWithExpertModel
 import openpi.models_pytorch.preprocessing_pytorch as _preprocessing
+from openpi.models_pytorch.track_head import TrackHead
 
 
 def get_safe_dtype(target_dtype, device_type):
@@ -97,28 +98,28 @@ class PI0Pytorch(nn.Module):
             precision=config.dtype,
         )
 
-        self.action_in_proj = nn.Linear(config.action_dim, action_expert_config.width)
-        self.action_out_proj = nn.Linear(action_expert_config.width, config.action_dim)
+        self.action_in_proj = nn.Linear(32, action_expert_config.width)
+        self.action_out_proj = nn.Linear(action_expert_config.width, 32)
 
         self.predict_tracks = getattr(config, "predict_tracks", False)
         self.n_track_points = getattr(config, "n_track_points", 39)
         self.tracks_loss_weight = getattr(config, "tracks_loss_weight", 1.0)
         if self.predict_tracks:
-            # Query points: (cam_id, x, y, z) per point -> [B, 39, 4]
-            self.query_point_encoder = nn.Linear(4, action_expert_config.width)
-            # Noisy tracks: [B, 39, action_horizon, 3] -> flatten to [B, 39, action_horizon*3]
-            self.noisy_track_encoder = nn.Linear(config.action_horizon * 3, action_expert_config.width)
-            # Track head: 39 output tokens -> [39, action_horizon, 3] per point
-            self.tracks_out_proj = nn.Linear(action_expert_config.width, config.action_horizon * 3)
-            if self.pi05:
-                self.track_time_mlp_in = nn.Linear(action_expert_config.width, action_expert_config.width)
-                self.track_time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
+            self.track_head = TrackHead(
+                prefix_dim=paligemma_config.width,
+                n_track_points=self.n_track_points,
+                action_horizon=config.action_horizon,
+                query_point_dim=3,
+                hidden_dim=256,
+                num_heads=8,
+                num_layers=2,
+            )
 
         if self.pi05:
             self.time_mlp_in = nn.Linear(action_expert_config.width, action_expert_config.width)
             self.time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
         else:
-            self.state_proj = nn.Linear(config.action_dim, action_expert_config.width)
+            self.state_proj = nn.Linear(32, action_expert_config.width)
             self.action_time_mlp_in = nn.Linear(2 * action_expert_config.width, action_expert_config.width)
             self.action_time_mlp_out = nn.Linear(action_expert_config.width, action_expert_config.width)
 
@@ -175,15 +176,15 @@ class PI0Pytorch(nn.Module):
     def _preprocess_observation(self, observation, *, train=True):
         """Helper method to preprocess observation."""
         observation = _preprocessing.preprocess_observation_pytorch(observation, train=train)
-        result = (
+        query_points = getattr(observation, "query_points", None)
+        return (
             list(observation.images.values()),
             list(observation.image_masks.values()),
             observation.tokenized_prompt,
             observation.tokenized_prompt_mask,
             observation.state,
+            query_points,
         )
-        query_points = getattr(observation, "query_points", None)
-        return (*result, query_points)
 
     def sample_noise(self, shape, device):
         return torch.normal(
@@ -329,43 +330,6 @@ class PI0Pytorch(nn.Module):
 
         return embs, pad_masks, att_masks, adarms_cond
 
-    def embed_track_suffix(
-        self, query_points, noisy_tracks, timestep
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        """Embed query points + noisy tracks for the track branch. 39 tokens, one per point.
-
-        query_points: [B, 39, 4] (cam_id, x, y, z)
-        noisy_tracks: [B, action_horizon, 39, 3]
-        """
-        bsize = query_points.shape[0]
-        device = query_points.device
-        # [B, 39, 4] -> [B, 39, D]
-        query_emb = self.query_point_encoder(query_points)
-        # [B, 50, 39, 3] -> [B, 39, 50, 3] -> [B, 39, 150]
-        noisy_tracks_flat = noisy_tracks.permute(0, 2, 1, 3).reshape(bsize, self.n_track_points, -1)
-        track_emb = self.noisy_track_encoder(noisy_tracks_flat)
-        # Combine: [B, 39, D]
-        track_tokens = query_emb + track_emb
-
-        expert_width = self.query_point_encoder.out_features
-        time_emb = create_sinusoidal_pos_embedding(
-            timestep, expert_width, min_period=4e-3, max_period=4.0, device=device
-        )
-        time_emb = time_emb.type(dtype=timestep.dtype)
-
-        if self.pi05:
-            time_emb = self.track_time_mlp_in(time_emb)
-            time_emb = F.silu(time_emb)
-            time_emb = self.track_time_mlp_out(time_emb)
-            adarms_cond = F.silu(time_emb)
-        else:
-            adarms_cond = None
-            track_tokens = track_tokens + time_emb.unsqueeze(1)
-
-        pad_masks = torch.ones(bsize, self.n_track_points, dtype=torch.bool, device=device)
-        att_masks = torch.zeros(self.n_track_points, dtype=torch.bool, device=device)
-        return track_tokens, pad_masks, att_masks, adarms_cond
-
     def forward(
         self,
         observation,
@@ -434,56 +398,20 @@ class PI0Pytorch(nn.Module):
         action_loss = F.mse_loss(u_t, v_t, reduction="none")
 
         if self.predict_tracks and tracks is not None and query_points is not None:
-            # Track branch: separate forward with query_points + noisy_tracks
-            track_noise = self.sample_noise(tracks.shape, tracks.device)
-            x_track = time_expanded * track_noise + (1 - time_expanded) * tracks
-
-            track_suffix_embs, track_pad_masks, track_att_masks, track_adarms = self.embed_track_suffix(
-                query_points, x_track, time
-            )
-            track_pad_masks_full = torch.cat([prefix_pad_masks, track_pad_masks], dim=1)
-            track_att_masks_full = torch.cat(
-                [prefix_att_masks, track_att_masks[None, :].expand(prefix_pad_masks.shape[0], -1)],
-                dim=1,
-            )
-            track_att_2d = make_att_2d_masks(track_pad_masks_full, track_att_masks_full)
-            track_position_ids = torch.cumsum(track_pad_masks_full, dim=1) - 1
-            track_att_4d = self._prepare_attention_masks_4d(track_att_2d)
-
-            if track_suffix_embs.dtype != torch.bfloat16 and prefix_embs.dtype == torch.bfloat16:
-                track_suffix_embs = track_suffix_embs.to(dtype=torch.bfloat16)
-
-            def track_forward_func(prefix_embs, track_suffix, att_4d, pos_ids, adarms):
-                (_, track_out), _ = self.paligemma_with_expert.forward(
-                    attention_mask=att_4d,
-                    position_ids=pos_ids,
-                    past_key_values=None,
-                    inputs_embeds=[prefix_embs, track_suffix],
-                    use_cache=False,
-                    adarms_cond=[None, adarms],
-                )
-                return track_out
-
-            track_out = self._apply_checkpoint(
-                track_forward_func,
-                prefix_embs,
-                track_suffix_embs,
-                track_att_4d,
-                track_position_ids,
-                track_adarms,
-            )
-            track_out = track_out[:, -self.n_track_points :].to(dtype=torch.float32)
-            tracks_pred = self.tracks_out_proj(track_out).reshape(
-                track_out.shape[0], self.n_track_points, self.config.action_horizon, 3
-            )
-            tracks_pred = tracks_pred.permute(0, 2, 1, 3)
+            prefix_pad_mask = torch.cat(prefix_pad_masks, dim=1)
+            tracks_pred = self.track_head(prefix_embs, prefix_pad_mask, query_points)
             tracks_loss = F.mse_loss(tracks_pred, tracks, reduction="none")
-            return action_loss.mean() + self.tracks_loss_weight * tracks_loss.mean()
+            combined_loss = (
+                action_loss.mean() + self.tracks_loss_weight * tracks_loss.mean()
+            )
+            return combined_loss
 
         return action_loss
 
     @torch.no_grad()
-    def sample_actions(self, device, observation, noise=None, num_steps=10) -> Tensor | dict[str, Tensor]:
+    def sample_actions(
+        self, device, observation, noise=None, num_steps=10
+    ) -> Tensor | dict[str, Tensor]:
         """Do a full inference forward and compute the action (batch_size x num_steps x num_motors).
         When predict_tracks=True, also returns tracks of shape (batch_size, action_horizon, n_track_points, 3).
         """
@@ -519,22 +447,22 @@ class PI0Pytorch(nn.Module):
         time = torch.tensor(1.0, dtype=torch.float32, device=device)
         while time >= -dt / 2:
             expanded_time = time.expand(bsize)
-            v_t = self.denoise_step(state, prefix_pad_masks, past_key_values, x_t, expanded_time)
+            v_t = self.denoise_step(
+                state,
+                prefix_pad_masks,
+                past_key_values,
+                x_t,
+                expanded_time,
+            )
+
+            # Euler step - use new tensor assignment instead of in-place operation
             x_t = x_t + dt * v_t
             time += dt
 
         if self.predict_tracks and query_points is not None:
-            track_noise = self.sample_noise((bsize, self.config.action_horizon, self.n_track_points, 3), device)
-            x_track = track_noise
-            time = torch.tensor(1.0, dtype=torch.float32, device=device)
-            while time >= -dt / 2:
-                expanded_time = time.expand(bsize)
-                v_track = self.denoise_step_track(
-                    prefix_pad_masks, past_key_values, query_points, x_track, expanded_time
-                )
-                x_track = x_track + dt * v_track
-                time += dt
-            return {"actions": x_t, "tracks": x_track}
+            prefix_pad_mask = torch.cat(prefix_pad_masks, dim=1)
+            tracks = self.track_head(prefix_embs, prefix_pad_mask, query_points)
+            return {"actions": x_t, "tracks": tracks}
         return x_t
 
     def denoise_step(
@@ -545,7 +473,7 @@ class PI0Pytorch(nn.Module):
         x_t,
         timestep,
     ):
-        """Apply one denoising step for actions."""
+        """Apply one denoising step of the noise `x_t` at a given timestep."""
         suffix_embs, suffix_pad_masks, suffix_att_masks, adarms_cond = self.embed_suffix(state, x_t, timestep)
 
         suffix_len = suffix_pad_masks.shape[1]
@@ -553,12 +481,15 @@ class PI0Pytorch(nn.Module):
         prefix_len = prefix_pad_masks.shape[1]
 
         prefix_pad_2d_masks = prefix_pad_masks[:, None, :].expand(batch_size, suffix_len, prefix_len)
+
         suffix_att_2d_masks = make_att_2d_masks(suffix_pad_masks, suffix_att_masks)
+
         full_att_2d_masks = torch.cat([prefix_pad_2d_masks, suffix_att_2d_masks], dim=2)
 
         prefix_offsets = torch.sum(prefix_pad_masks, dim=-1)[:, None]
         position_ids = prefix_offsets + torch.cumsum(suffix_pad_masks, dim=1) - 1
 
+        # Prepare attention masks
         full_att_2d_masks_4d = self._prepare_attention_masks_4d(full_att_2d_masks)
         self.paligemma_with_expert.gemma_expert.model.config._attn_implementation = "eager"  # noqa: SLF001
 
@@ -571,50 +502,8 @@ class PI0Pytorch(nn.Module):
             adarms_cond=[None, adarms_cond],
         )
 
-        suffix_out = outputs_embeds[1][:, -self.config.action_horizon :].to(dtype=torch.float32)
-        return self.action_out_proj(suffix_out)
-
-    def denoise_step_track(
-        self,
-        prefix_pad_masks,
-        past_key_values,
-        query_points,
-        x_track,
-        timestep,
-    ):
-        """Apply one denoising step for tracks. Uses query_points for conditioning."""
-        track_suffix_embs, track_pad_masks, track_att_masks, track_adarms = self.embed_track_suffix(
-            query_points, x_track, timestep
-        )
-
-        suffix_len = track_pad_masks.shape[1]
-        batch_size = prefix_pad_masks.shape[0]
-        prefix_len = prefix_pad_masks.shape[1]
-
-        prefix_pad_2d_masks = prefix_pad_masks[:, None, :].expand(batch_size, suffix_len, prefix_len)
-        track_att_2d_masks = make_att_2d_masks(track_pad_masks, track_att_masks)
-        full_att_2d_masks = torch.cat([prefix_pad_2d_masks, track_att_2d_masks], dim=2)
-
-        prefix_offsets = torch.sum(prefix_pad_masks, dim=-1)[:, None]
-        position_ids = prefix_offsets + torch.cumsum(track_pad_masks, dim=1) - 1
-
-        full_att_2d_masks_4d = self._prepare_attention_masks_4d(full_att_2d_masks)
-        self.paligemma_with_expert.gemma_expert.model.config._attn_implementation = "eager"  # noqa: SLF001
-
-        if track_suffix_embs.dtype != torch.bfloat16:
-            track_suffix_embs = track_suffix_embs.to(dtype=torch.bfloat16)
-
-        outputs_embeds, _ = self.paligemma_with_expert.forward(
-            attention_mask=full_att_2d_masks_4d,
-            position_ids=position_ids,
-            past_key_values=past_key_values,
-            inputs_embeds=[None, track_suffix_embs],
-            use_cache=False,
-            adarms_cond=[None, track_adarms],
-        )
-
-        track_out = outputs_embeds[1][:, -self.n_track_points :].to(dtype=torch.float32)
-        v_track = self.tracks_out_proj(track_out).reshape(
-            track_out.shape[0], self.n_track_points, self.config.action_horizon, 3
-        )
-        return v_track.permute(0, 2, 1, 3)
+        suffix_out = outputs_embeds[1]
+        suffix_out = suffix_out[:, -self.config.action_horizon :]
+        suffix_out = suffix_out.to(dtype=torch.float32)
+        v_t = self.action_out_proj(suffix_out)
+        return v_t

@@ -325,34 +325,6 @@ class PromptFromLeRobotTask(DataTransformFn):
 
 
 @dataclasses.dataclass(frozen=True)
-class InjectQueryPoints(DataTransformFn):
-    """Extract query_points from tracks[:, 0] for track prediction.
-
-    query_points: [39, 4] with (cam_id, x, y, z). cam_id: 0=agent_view, 1=eye_in_hand, 2=gripper.
-    point layout: 7 agent + 25 grid eye-in-hand + 7 gripper = 39.
-    """
-
-    track_point_groups: tuple[int, ...] = (7, 25, 7)
-
-    def __call__(self, data: DataDict) -> DataDict:
-        if "tracks" not in data:
-            return data
-        tracks = np.asarray(data["tracks"])
-        if tracks.ndim != 3:
-            return data
-        # tracks: [action_horizon, 39, 3] -> first frame [39, 3]
-        first_frame = tracks[0]
-        n_points = first_frame.shape[0]
-        cam_ids = np.zeros(n_points, dtype=np.float32)
-        offset = 0
-        for i, group_size in enumerate(self.track_point_groups):
-            cam_ids[offset : offset + group_size] = i
-            offset += group_size
-        query_points = np.concatenate([cam_ids[:, None], first_frame], axis=-1).astype(np.float32)
-        return {**data, "query_points": query_points}
-
-
-@dataclasses.dataclass(frozen=True)
 class PadStatesAndActions(DataTransformFn):
     """Zero-pads states and actions to the model action dimension."""
 
